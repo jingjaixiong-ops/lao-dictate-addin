@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <title>Lao Dictate</title>
+  <link rel="stylesheet" href="https://appsforoffice.microsoft.com/lib/1/hosted/office.css" />
+  <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="taskpane.css" />
+</head>
+<body class="ms-font-m">
+  <header>
+    <h1>ຖອດສຽງລາວ / ถอดเสียงลาว</h1>
+    <p class="subtitle">Lao Speech-to-Text for Word</p>
+  </header>
+
+  <section class="card">
+    <h2>1) ถอดเสียงแบบ Real-time (คำต่อคำ / ประโยคต่อประโยค)</h2>
+    <p class="hint">
+      ใช้ Web Speech API ในตัวเบราว์เซอร์ พูดแล้วแทรกลงเอกสารทันทีเมื่อจบแต่ละประโยค
+      ไม่ต้องใช้ API key และไม่ต้องอัปโหลดไฟล์ — ต้องใช้อินเทอร์เน็ตและรันบน Chromium
+      (Word desktop บน Windows หรือ Word บนเว็บที่เปิดด้วย Chrome/Edge)
+    </p>
+    <button id="startRealtimeBtn">🎙️ เริ่มพูด</button>
+    <button id="stopRealtimeBtn" disabled>⏹️ หยุด</button>
+    <div id="realtimeStatus" class="status"></div>
+  </section>
+
+  <section class="card">
+    <h2>ตัวอย่างข้อความสด (คำที่กำลังฟัง + ที่แทรกแล้ว)</h2>
+    <textarea id="preview" rows="6" readonly placeholder="ข้อความที่ถอดได้จะแสดงที่นี่แบบสด ๆ..."></textarea>
+  </section>
+
+  <section class="card">
+    <h2>2) ถอดเสียงจากไฟล์เสียง (ไม่ real-time)</h2>
+    <p class="hint">ใช้เมื่อมีไฟล์เสียงอัดไว้แล้ว หรือรันบน Word for Mac ที่ไม่รองรับ Web Speech API</p>
+    <label for="apiKey">OpenAI API Key (ใช้เฉพาะโหมดนี้)</label>
+    <input type="password" id="apiKey" placeholder="sk-..." />
+    <p class="hint">
+      คีย์นี้จะถูกเก็บไว้ในเครื่องของคุณเท่านั้น (localStorage) และส่งตรงจากเบราว์เซอร์ไปยัง OpenAI
+      สำหรับการใช้งานในองค์กร แนะนำให้เปลี่ยนไปเรียกผ่านเซิร์ฟเวอร์ตัวกลาง (proxy) แทนการฝังคีย์ในไคลเอนต์
+    </p>
+    <button id="saveKeyBtn">บันทึกคีย์</button>
+    <span id="keyStatus"></span>
+    <br /><br />
+    <input type="file" id="audioFile" accept="audio/*" />
+    <button id="transcribeFileBtn">📄 ถอดเสียงไฟล์และแทรกลงเอกสาร</button>
+    <div id="fileStatus" class="status"></div>
+  </section>
+
+  <script type="text/javascript" src="taskpane.js"></script>
+</body>
+</html>
