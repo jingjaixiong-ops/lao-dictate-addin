@@ -1,25 +1,30 @@
 /* Lao Dictate — Word Add-in
-   - "Real-time" mode: TRUE streaming dictation using the browser's native
-     Web Speech API (SpeechRecognition). Chrome/Edge route the audio to
-     Google's speech recognition service, which supports Lao ("lo"). This
-     gives genuine word-by-word interim results and sentence-by-sentence
-     final results with no API key and no server needed. Only works where
-     the task pane runs on a Chromium engine (Word desktop on Windows via
-     WebView2, or Word on the web opened in Chrome/Edge). Safari-based
-     WebViews (Word on Mac) do not implement this API — the file-upload
-     mode below (OpenAI Whisper) is the fallback there.
+   - "Real-time" mode: TRUE streaming dictation using the Azure Speech SDK
+     for JavaScript. It connects over a standard WebSocket (not a
+     Chrome-only privileged API), so — unlike the browser's native
+     webkitSpeechRecognition, which only authenticates from genuine Google
+     Chrome and returns a generic "network" error everywhere else,
+     including Word's own WebView2 — this works reliably inside the Word
+     task pane on Windows, on Word on the web in any browser, and (with
+     microphone permission) on Word for Mac too. Azure Speech officially
+     lists Lao ("lo-LA") as a supported recognition locale. Requires an
+     Azure Speech resource (key + region) — Azure offers a free tier.
    - "File upload" mode: sends a full audio file to OpenAI's transcription
      endpoint (works everywhere, but is not real-time).
 */
 
-const LANG = "lo"; // used for both Web Speech API (lang) and Whisper (language)
+const LANG = "lo-LA"; // Azure Speech locale code for Lao
+const WHISPER_LANG = "lo"; // OpenAI Whisper uses the shorter ISO-639-1 code
 
-let recognition = null;
+let recognizer = null;
 let realtimeRunning = false;
 let committedText = ""; // text already inserted into the Word document this session
 
 Office.onReady(() => {
+  console.log("[Lao Dictate] build 2 loaded — taskpane.js");
+
   document.getElementById("saveKeyBtn").onclick = saveKey;
+  document.getElementById("saveAzureBtn").onclick = saveAzureConfig;
   document.getElementById("startRealtimeBtn").onclick = startRealtime;
   document.getElementById("stopRealtimeBtn").onclick = stopRealtime;
   document.getElementById("transcribeFileBtn").onclick = transcribeFile;
@@ -30,17 +35,31 @@ Office.onReady(() => {
     setKeyStatus("ใช้คีย์ที่บันทึกไว้");
   }
 
-  checkRealtimeSupport();
+  const savedAzureKey = localStorage.getItem("laoDictate_azureKey");
+  const savedAzureRegion = localStorage.getItem("laoDictate_azureRegion");
+  if (savedAzureKey) document.getElementById("azureKey").value = savedAzureKey;
+  if (savedAzureRegion) document.getElementById("azureRegion").value = savedAzureRegion;
+  if (savedAzureKey && savedAzureRegion) {
+    document.getElementById("azureStatus").textContent = "ใช้ค่าที่บันทึกไว้";
+  }
+
+  if (typeof SpeechSDK === "undefined") {
+    document.getElementById("realtimeStatus").textContent =
+      "โหลด Azure Speech SDK ไม่สำเร็จ (ตรวจสอบอินเทอร์เน็ต หรือว่า cdn.jsdelivr.net ถูกบล็อกหรือไม่)";
+    document.getElementById("startRealtimeBtn").disabled = true;
+  }
 });
 
-function checkRealtimeSupport() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const statusEl = document.getElementById("realtimeStatus");
-  if (!SR) {
-    document.getElementById("startRealtimeBtn").disabled = true;
-    statusEl.textContent =
-      "เบราว์เซอร์/WebView นี้ไม่รองรับ Web Speech API (เช่น Word บน Mac) — กรุณาใช้โหมด 'ถอดเสียงจากไฟล์เสียง' แทน หรือเปิด Word บนเว็บด้วย Chrome/Edge";
+function saveAzureConfig() {
+  const key = document.getElementById("azureKey").value.trim();
+  const region = document.getElementById("azureRegion").value.trim();
+  if (!key || !region) {
+    document.getElementById("azureStatus").textContent = "กรุณากรอกทั้ง Key และ Region";
+    return;
   }
+  localStorage.setItem("laoDictate_azureKey", key);
+  localStorage.setItem("laoDictate_azureRegion", region);
+  document.getElementById("azureStatus").textContent = "บันทึกแล้ว ✓";
 }
 
 function saveKey() {
@@ -81,7 +100,7 @@ async function transcribeBlob(blob, filename, apiKey) {
   const form = new FormData();
   form.append("file", blob, filename);
   form.append("model", "whisper-1");
-  form.append("language", LANG);
+  form.append("language", WHISPER_LANG);
 
   const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -97,73 +116,80 @@ async function transcribeBlob(blob, filename, apiKey) {
   return data.text || "";
 }
 
-/* ---------- TRUE Real-time dictation (Web Speech API) ---------- */
+/* ---------- TRUE Real-time dictation (Azure Speech SDK) ---------- */
 function startRealtime() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const statusEl = document.getElementById("realtimeStatus");
   const preview = document.getElementById("preview");
 
-  if (!SR) {
-    statusEl.textContent = "เบราว์เซอร์นี้ไม่รองรับ Web Speech API";
+  const azureKey = localStorage.getItem("laoDictate_azureKey");
+  const azureRegion = localStorage.getItem("laoDictate_azureRegion");
+
+  if (!azureKey || !azureRegion) {
+    statusEl.textContent = "กรุณาตั้งค่า Azure Speech Key และ Region ก่อน";
+    return;
+  }
+  if (typeof SpeechSDK === "undefined") {
+    statusEl.textContent = "Azure Speech SDK ยังโหลดไม่สำเร็จ";
     return;
   }
 
   committedText = "";
   preview.value = "";
 
-  recognition = new SR();
-  recognition.lang = LANG; // "lo" — Lao
-  recognition.continuous = true; // keep listening, don't stop after one phrase
-  recognition.interimResults = true; // fire live word-by-word updates
+  let speechConfig;
+  try {
+    speechConfig = SpeechSDK.SpeechConfig.fromSubscription(azureKey, azureRegion);
+  } catch (e) {
+    statusEl.textContent = "ตั้งค่า Azure Speech ไม่สำเร็จ: " + e.message;
+    return;
+  }
+  speechConfig.speechRecognitionLanguage = LANG; // "lo-LA"
+
+  const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+  recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
 
   realtimeRunning = true;
   document.getElementById("startRealtimeBtn").disabled = true;
   document.getElementById("stopRealtimeBtn").disabled = false;
-  statusEl.textContent = "🎙️ กำลังฟัง... พูดได้เลย";
+  statusEl.textContent = "🎙️ กำลังเชื่อมต่อ...";
 
-  recognition.onresult = async (event) => {
-    let interimText = "";
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i];
-      const transcript = result[0].transcript;
-
-      if (result.isFinal) {
-        // A sentence/phrase is finalized -> commit it to the Word document immediately
-        committedText += transcript;
-        statusEl.textContent = "🎙️ กำลังฟัง...";
-        await insertIntoDocument(transcript);
-      } else {
-        // Still being recognized -> show live, word-by-word, in the preview only
-        interimText += transcript;
-      }
+  // Fires continuously while a phrase is still being recognized (live, word-by-word)
+  recognizer.recognizing = (s, e) => {
+    if (e.result.text) {
+      preview.value = (committedText + " " + e.result.text).trim();
+      statusEl.textContent = "🎙️ กำลังฟัง...";
     }
-
-    // Live preview: committed (already in the doc) + what's currently being heard
-    preview.value = (committedText + " " + interimText).trim();
   };
 
-  recognition.onerror = (event) => {
-    if (event.error === "no-speech") return; // benign, keep listening
-    statusEl.textContent = "เกิดข้อผิดพลาด: " + event.error;
-    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+  // Fires once a phrase/sentence boundary is finalized -> commit to the document
+  recognizer.recognized = async (s, e) => {
+    if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
+      committedText += (committedText ? " " : "") + e.result.text;
+      preview.value = committedText;
+      await insertIntoDocument(e.result.text);
+    }
+  };
+
+  recognizer.canceled = (s, e) => {
+    console.error("[Lao Dictate] recognizer canceled", e.reason, e.errorCode, e.errorDetails);
+    statusEl.textContent =
+      "เกิดข้อผิดพลาด (" + (e.errorCode || e.reason) + "): " + (e.errorDetails || "ไม่ทราบสาเหตุ");
+    stopRealtime();
+  };
+
+  recognizer.sessionStarted = () => {
+    statusEl.textContent = "🎙️ กำลังฟัง...";
+  };
+
+  recognizer.startContinuousRecognitionAsync(
+    () => {
+      /* started */
+    },
+    (err) => {
+      statusEl.textContent = "เริ่มไม่สำเร็จ: " + err;
       stopRealtime();
     }
-  };
-
-  recognition.onend = () => {
-    // Chrome auto-stops recognition periodically (e.g. after a pause) —
-    // restart automatically to keep the session feeling continuous.
-    if (realtimeRunning) {
-      try {
-        recognition.start();
-      } catch (e) {
-        /* already starting */
-      }
-    }
-  };
-
-  recognition.start();
+  );
 }
 
 function stopRealtime() {
@@ -172,10 +198,16 @@ function stopRealtime() {
   document.getElementById("stopRealtimeBtn").disabled = true;
   document.getElementById("realtimeStatus").textContent = "หยุดแล้ว";
 
-  if (recognition) {
-    recognition.onend = null; // prevent auto-restart
-    recognition.stop();
-    recognition = null;
+  if (recognizer) {
+    recognizer.stopContinuousRecognitionAsync(
+      () => {
+        recognizer.close();
+        recognizer = null;
+      },
+      () => {
+        recognizer = null;
+      }
+    );
   }
 }
 

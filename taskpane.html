@@ -3,23 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Lao Dictate</title>
   <link rel="stylesheet" href="https://appsforoffice.microsoft.com/lib/1/hosted/office.css" />
   <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="taskpane.css" />
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@latest/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js"></script>
+  <link rel="stylesheet" href="taskpane.css?v=2" />
 </head>
 <body class="ms-font-m">
   <header>
     <h1>ຖອດສຽງລາວ / ถอดเสียงลาว</h1>
-    <p class="subtitle">Lao Speech-to-Text for Word</p>
+    <p class="subtitle">Lao Speech-to-Text for Word <span id="buildTag" style="opacity:.5;font-size:10px;"></span></p>
   </header>
+
+  <section id="azure-setup" class="card">
+    <h2>ตั้งค่า Azure Speech (สำหรับโหมด Real-time)</h2>
+    <p class="hint">
+      ต้องใช้ Azure Speech Key + Region (สมัคร/ดู key ได้ที่ Azure Portal → Speech service มี free tier ให้ทดลอง)
+      สำหรับภาษาลาวแนะนำเลือก region ที่ใกล้ เช่น southeastasia
+    </p>
+    <input type="password" id="azureKey" placeholder="Azure Speech Key" />
+    <input type="text" id="azureRegion" placeholder="Region เช่น southeastasia" />
+    <button id="saveAzureBtn">บันทึกค่า Azure</button>
+    <span id="azureStatus"></span>
+  </section>
 
   <section class="card">
     <h2>1) ถอดเสียงแบบ Real-time (คำต่อคำ / ประโยคต่อประโยค)</h2>
     <p class="hint">
-      ใช้ Web Speech API ในตัวเบราว์เซอร์ พูดแล้วแทรกลงเอกสารทันทีเมื่อจบแต่ละประโยค
-      ไม่ต้องใช้ API key และไม่ต้องอัปโหลดไฟล์ — ต้องใช้อินเทอร์เน็ตและรันบน Chromium
-      (Word desktop บน Windows หรือ Word บนเว็บที่เปิดด้วย Chrome/Edge)
+      ใช้ Azure Speech SDK เชื่อมต่อผ่าน WebSocket โดยตรง ทำงานได้จริงใน Word desktop (WebView2)
+      พูดแล้วแทรกลงเอกสารทันทีเมื่อจบแต่ละประโยค ต้องมีอินเทอร์เน็ตและตั้งค่า Azure Speech ด้านบนก่อน
     </p>
     <button id="startRealtimeBtn">🎙️ เริ่มพูด</button>
     <button id="stopRealtimeBtn" disabled>⏹️ หยุด</button>
@@ -48,6 +63,7 @@
     <div id="fileStatus" class="status"></div>
   </section>
 
-  <script type="text/javascript" src="taskpane.js"></script>
+  <script type="text/javascript" src="taskpane.js?v=2"></script>
+  <script>document.getElementById("buildTag").textContent = "build 2";</script>
 </body>
 </html>
